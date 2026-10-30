@@ -1,6 +1,7 @@
 #!/bin/bash
 # ============================================================
-# 圆明园数字重建 - 项目初始化脚本
+# 圆明园数字重建 - 实验性流水线初始化脚本（未完成，仅供开发参考）
+# 注意：可演示成品在 output/index.html，无需运行本脚本
 # ============================================================
 
 set -e
@@ -73,8 +74,8 @@ fi
 echo ""
 echo "🌐 初始化前端..."
 
-if [ -d "src/frontend" ]; then
-    cd src/frontend
+if [ -d "pipeline-experimental/frontend" ]; then
+    cd pipeline-experimental/frontend
     if command -v npm &> /dev/null; then
         npm install
         info "前端依赖安装完成"
@@ -116,8 +117,8 @@ echo "============================================================"
 echo ""
 echo "下一步:"
 echo "  1. 编辑 .env 文件，设置 MESHY_API_KEY"
-echo "  2. 运行: python src/ai_rebuild/meshy_api.py"
-echo "  3. 运行: blender --background --python src/blender_scripts/assemble.py"
-echo "  4. 运行: uvicorn src.backend.main:app --reload"
-echo "  5. 运行: cd src/frontend && npm run dev"
+echo "  2. 运行: python pipeline-experimental/ai_rebuild/meshy_api.py"
+echo "  3. 运行: blender --background --python pipeline-experimental/blender_scripts/assemble.py"
+echo "  4. 运行: uvicorn pipeline-experimental.backend.main:app --reload"
+echo "  5. 运行: cd pipeline-experimental/frontend && npm run dev"
 echo ""

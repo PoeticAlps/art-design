@@ -32,6 +32,22 @@ canvas{display:block}
 .loading.hide{opacity:0;pointer-events:none}
 .loading h1{font-size:32px;margin-bottom:10px}.loading h1 em{color:#ffd700;font-style:normal}
 .loading p{color:#666;font-size:14px}
+#ui .header{pointer-events:none}
+.glb-divider{margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,215,0,.15)}
+.glb-progress{position:absolute;bottom:56px;left:50%;transform:translateX(-50%);background:rgba(10,10,26,.92);border:1px solid rgba(255,215,0,.35);border-radius:20px;padding:9px 18px;font-size:12px;color:#ffd700;display:none;min-width:210px;text-align:center;z-index:200}
+.glb-progress.show{display:block}
+.glb-progress.error{color:#ff8585;border-color:rgba(255,120,120,.45)}
+.glb-progress .bar{height:4px;background:rgba(255,215,0,.15);border-radius:2px;overflow:hidden;margin-bottom:6px}
+.glb-progress .bar i{display:block;height:100%;width:0;background:#ffd700;transition:width .15s}
+@media (max-width:480px){
+.header{padding:10px 14px}.header h1{font-size:17px}.header .info{display:none}
+.sidebar{top:52px;right:10px;width:176px;padding:10px;border-radius:10px}
+.scene-btn{padding:9px 10px}.scene-btn h4{font-size:13px}.scene-btn p{font-size:10px}
+.detail{left:10px;right:10px;width:auto;bottom:12px;padding:14px}
+.detail h2{font-size:17px}
+.footer{display:none}
+.glb-progress{bottom:14px;max-width:86vw}
+}
 </style>
 </head>
 <body>
@@ -45,19 +61,25 @@ canvas{display:block}
 <button class="scene-btn" data-scene="dashuifa"><h4>🏛️ 大水法</h4><p>西洋楼·猎狗逐鹿</p></button>
 <button class="scene-btn" data-scene="fangpu"><h4>🏯 方壶胜境</h4><p>人间仙境·水上楼阁</p></button>
 <button class="scene-btn" data-scene="zhengda"><h4>👑 正大光明</h4><p>圆明园正殿</p></button>
+<div class="glb-divider"><h3>🎬 实景模型</h3>
+<button class="scene-btn" id="glb-btn"><h4 id="glb-btn-title">🏛️ 加载实景模型</h4><p id="glb-btn-sub">GLB 实景 · 点击加载</p></button>
+</div>
 </div>
 <div class="detail" id="detail">
 <button class="close" onclick="document.getElementById('detail').classList.remove('show')">×</button>
 <h2 id="detail-title"></h2><div class="year" id="detail-year"></div><div class="desc" id="detail-desc"></div><div class="tags" id="detail-tags"></div>
 </div>
+<div class="glb-progress" id="glb-progress"><div class="bar"><i id="glb-bar-fill"></i></div><span id="glb-progress-text">加载中 0%</span></div>
 <div class="footer"><em>重生·圆明园</em> · 左键旋转 · 滚轮缩放 · 右键平移</div>
 </div>
 <script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
 <script>
 var scene,camera,renderer,camTarget=new THREE.Vector3(0,0,0);
 var camSph=new THREE.Spherical(100,Math.PI/3,Math.PI/4);
 var isDrag=false,isPan=false,prevM={x:0,y:0};
 var tgtPos=null,tgtLook=null,animT=0;
+var worldGroup=null,glbGroup=null,glbLoaded=false,glbLoading=false,modelView=false;
 
 var SCENES={
 overview:{pos:[0,0,0],cam:[90,65,90],title:'圆明园全景',year:'1707-1860',desc:'圆明园由圆明园、长春园、绮春园三园组成，占地5200余亩，是清代大型皇家园林，被誉为"万园之园"。',tags:['皇家园林','万园之园','文化遗产']},
@@ -96,7 +118,14 @@ renderer.setSize(innerWidth,innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 document.body.appendChild(renderer.domElement);
 
-// 灯光
+buildWorld();
+
+// 将程序化场景打包成组，便于与 GLB 实景模型互切
+worldGroup=new THREE.Group();
+while(scene.children.length){worldGroup.add(scene.children[0]);}
+scene.add(worldGroup);
+
+// 灯光（场景级，程序化场景与实景模型共用）
 scene.add(new THREE.AmbientLight(0x8899bb,0.5));
 var sun=new THREE.DirectionalLight(0xffeedd,1.0);
 sun.position.set(60,100,40);sun.castShadow=true;
@@ -104,7 +133,6 @@ scene.add(sun);
 scene.add(new THREE.DirectionalLight(0xaaccff,0.3).translateX(-40).translateY(50));
 scene.add(new THREE.DirectionalLight(0xffd700,0.2).translateY(30).translateZ(-60));
 
-buildWorld();
 setupControls();
 setupUI();
 
@@ -475,6 +503,7 @@ var btns=document.querySelectorAll('.scene-btn');
 for(var i=0;i<btns.length;i++){
 btns[i].addEventListener('click',function(){
 var id=this.dataset.scene,d=SCENES[id];if(!d)return;
+if(modelView)exitModelView(false);
 var allBtns=document.querySelectorAll('.scene-btn');
 for(var j=0;j<allBtns.length;j++)allBtns[j].classList.remove('active');
 this.classList.add('active');
@@ -482,12 +511,117 @@ document.getElementById('detail-title').textContent=d.title;
 document.getElementById('detail-year').textContent=d.year;
 document.getElementById('detail-desc').textContent=d.desc;
 document.getElementById('detail-tags').innerHTML=d.tags.map(function(t){return '<span class="tag">'+t+'</span>';}).join('');
-document.getElementById('detail').classList.add('show');
-tgtPos=new THREE.Vector3(d.cam[0],d.cam[1],d.cam[2]);
-tgtLook=new THREE.Vector3(d.pos[0],d.pos[1],d.pos[2]);
-animT=Date.now();
-});
+ document.getElementById('detail').classList.add('show');
+ tgtPos=new THREE.Vector3(d.cam[0],d.cam[1],d.cam[2]);
+ tgtLook=new THREE.Vector3(d.pos[0],d.pos[1],d.pos[2]);
+ animT=Date.now();
+ });
+ }
+ }
+
+// ===== 实景 GLB 模型 =====
+var GLB_URL='./yuanmingyuan.glb';
+var glbBtn=document.getElementById('glb-btn');
+
+function setGlbBtn(active){
+ if(active){
+ glbBtn.classList.add('active');
+ document.getElementById('glb-btn-title').textContent='🏞️ 返回程序化场景';
+ document.getElementById('glb-btn-sub').textContent='回到实时建模场景';
+ }else{
+ glbBtn.classList.remove('active');
+ document.getElementById('glb-btn-title').textContent=glbLoaded?'🏛️ 实景模型':'🏛️ 加载实景模型';
+ document.getElementById('glb-btn-sub').textContent=glbLoaded?'GLB 实景 · 点击切换':'GLB 实景 · 点击加载';
+ }
 }
+
+function showProgress(txt){
+ var p=document.getElementById('glb-progress');
+ p.classList.remove('error');p.classList.add('show');
+ document.getElementById('glb-progress-text').textContent=txt;
+}
+function setProgress(pct){
+ document.getElementById('glb-bar-fill').style.width=pct+'%';
+ showProgress('实景模型加载中 '+pct+'%');
+}
+function hideProgress(){document.getElementById('glb-progress').classList.remove('show');}
+function showError(msg){
+ var p=document.getElementById('glb-progress');
+ p.classList.add('show','error');
+ document.getElementById('glb-bar-fill').style.width='0';
+ document.getElementById('glb-progress-text').textContent=msg;
+ setTimeout(function(){p.classList.remove('show','error');},4000);
+}
+
+glbBtn.addEventListener('click',function(){
+ if(glbLoading)return;
+ if(modelView){exitModelView(true);}
+ else if(glbLoaded){enterModelView();}
+ else{loadGLB();}
+});
+
+function loadGLB(){
+ glbLoading=true;
+ setProgress(0);
+ if(!window.THREE||!THREE.GLTFLoader){
+ glbLoading=false;
+ showError('GLTFLoader 未就绪，已保留程序化场景');
+ return;
+ }
+ var loader=new THREE.GLTFLoader();
+ loader.load(GLB_URL,function(gltf){
+ glbLoading=false;
+ var model=gltf.scene;
+ // 归一化：居中、落地，并缩放到与程序化场景相近的尺度
+ var bbox=new THREE.Box3().setFromObject(model);
+ var size=bbox.getSize(new THREE.Vector3());
+ var maxDim=Math.max(size.x,size.y,size.z)||1;
+ model.scale.setScalar(160/maxDim);
+ bbox.setFromObject(model);
+ var center=bbox.getCenter(new THREE.Vector3());
+ model.position.x-=center.x;
+ model.position.z-=center.z;
+ model.position.y-=bbox.min.y;
+ glbGroup=new THREE.Group();
+ glbGroup.add(model);
+ glbGroup.visible=false;
+ scene.add(glbGroup);
+ glbLoaded=true;
+ hideProgress();
+ enterModelView();
+ },function(xhr){
+ if(xhr.total>0)setProgress(Math.min(99,Math.round(xhr.loaded/xhr.total*100)));
+ else showProgress('实景模型加载中 '+Math.round(xhr.loaded/1024)+'KB');
+ },function(err){
+ glbLoading=false;hideProgress();
+ showError('实景模型加载失败，已保留程序化场景');
+ console.warn('GLB load error:',err);
+ });
+}
+
+function enterModelView(){
+ modelView=true;
+ worldGroup.visible=false;
+ if(glbGroup)glbGroup.visible=true;
+ scene.fog.near=200;scene.fog.far=1200;
+ setGlbBtn(true);
+ var btns=document.querySelectorAll('.scene-btn[data-scene]');
+ for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');
+ document.getElementById('detail').classList.remove('show');
+ tgtPos=new THREE.Vector3(80,90,130);
+ tgtLook=new THREE.Vector3(0,0,0);
+ animT=Date.now();
+ document.querySelector('.footer').innerHTML='<em>实景模型</em> · Blender 流水线导出 · 左键旋转 · 滚轮缩放';
+}
+
+function exitModelView(fly){
+ modelView=false;
+ worldGroup.visible=true;
+ if(glbGroup)glbGroup.visible=false;
+ scene.fog.near=80;scene.fog.far=300;
+ setGlbBtn(false);
+ document.querySelector('.footer').innerHTML='<em>重生·圆明园</em> · 左键旋转 · 滚轮缩放 · 右键平移';
+ if(fly!==false){tgtPos=new THREE.Vector3(90,65,90);tgtLook=new THREE.Vector3(0,0,0);animT=Date.now();}
 }
 
 function animate(){
